@@ -1,0 +1,188 @@
+/* Resetting some default styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Poppins', sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: url(/static/bg.jpg) no-repeat center center fixed;
+  background-size: cover;
+  color: #ffffff;
+}
+
+/* Navbar styling */
+.navbar {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
+  backdrop-filter: blur(10px); /* Blur effect for better readability */
+  color: #ffffff;
+  padding: 15px 30px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Slightly darker shadow */
+  position: fixed; /* Fixed position */
+  top: 0;
+  width: 100%;
+  z-index: 1000;
+}
+
+.logo a {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.nav-links {
+  list-style: none;
+  display: flex;
+  gap: 30px;
+}
+
+.nav-links li {
+  position: relative;
+}
+
+.nav-links a {
+  color: #ffffff;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  transition: background 0.3s ease-in-out;
+}
+
+.nav-links a:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Content styling */
+h2 {
+  font-size: 28px;
+  margin: 120px 20px 20px; /* Adjust margin to account for fixed navbar */
+  text-align: center;
+}
+form select {
+  width: 100%;
+  padding: 12px 40px 12px 12px; /* Adjust padding for better spacing */
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1); /* Dark background for better contrast */
+  color: #ffffff;
+  font-size: 16px;
+  appearance: none; /* Remove default dropdown arrow */
+  background-image: url('/static/arrow-down.png'); /* Custom arrow icon */
+  background-repeat: no-repeat;
+  background-position: right 10px center; /* Position arrow to the right */
+  background-size: 20px; /* Size of the custom arrow */
+}
+
+/* Focus State */
+form select:focus {
+  border-color: #ffffff; /* Border color on focus */
+  outline: none; /* Remove default focus outline */
+}
+
+/* Option Styling */
+form select option {
+  background: #333; /* Background for options */
+  color: #ffffff; /* Text color for options */
+}
+
+/* Option Hover State */
+form select option:hover {
+  background: #444; /* Hover background for options */
+}
+
+form select::-ms-expand {
+  display: none; /* Hide default arrow in IE */
+}
+
+form {
+  max-width: 600px;
+  margin: 0 auto;
+  background: rgba(0, 0, 0, 0.7); /* Semi-transparent background */
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+input[type="text"],
+textarea,
+select,
+input[type="file"] {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 16px;
+  margin-bottom: 15px;
+}
+
+textarea {
+  height: 100px;
+  resize: vertical;
+}
+
+input[type="submit"] {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #333;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s ease-in-out;
+}
+
+input[type="submit"]:hover {
+  background: #e0e0e0;
+}
+form input[type="file"] {
+  border: none;
+  background: transparent;
+  padding: 10px;
+}
+
+form input[type="file"]::file-selector-button {
+  background: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 10px;
+  color: #333;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.3s ease-in-out;
+}
+
+form input[type="file"]::file-selector-button:hover {
+  background: #8b8a8a;
+}
+
+a {
+  display: block;
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 16px;
+  margin: 10px 0;
+  text-align: center;
+}
+
+a:hover {
+  text-decoration: underline;
+}

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home</title>
+    <link rel="stylesheet" href="../static/css/index_css.css">
+    <script src="../static/scripts/index_script.js" defer></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <a href="{{ url_for('index') }}">CipherShield</a>
+        </div>
+        <ul class="nav-links">
+            <li><a href="{{ url_for('index') }}">Home</a></li>
+            <li><a href="{{ url_for('upload', users=users) }}">Upload</a></li>
+            <li><a href="{{ url_for('metrics') }}">Metrics</a></li>
+            <li><a href="{{ url_for('logout') }}">Logout</a></li>
+        </ul>
+    </nav>
+
+    <div class="content">
+        <h2>Welcome, {{ session['username'] }}</h2>
+
+        <div class="video-list">
+            <h3>List of Videos Uploaded :</h3>
+            {% if videos %}
+                <ul>
+                    {% for video in videos %}
+                        <li class="video-item" data-video-url="{{ url_for('watch', video_id=video[0]) }}">
+                            <a href="{{ url_for('watch', video_id=video[0]) }}" class="video-link">{{ loop.index }}. Video Title: "{{ video[1] }}"</a>
+                            <p>Description: {{ video[2] }}</p>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No videos found</p>
+            {% endif %}
+        </div>
+
+        <!-- Mini Video Player -->
+      <!-- Updated with streaming URL -->
+<div id="mini-player" class="mini-player hidden">
+    <video id="video-player" controls>
+        <source id="video-source" src="" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+</div>
+
+    </div>
+</body>
+</html>
