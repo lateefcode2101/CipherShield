@@ -143,7 +143,7 @@ def generate_aes_key_with_ecc_equation(vid_or_key, systemUniqueInformation, firs
     # print('lenght of x integer is ', len(str(x)))
 
     # Compute Key a using the ECC equation
-    key_int = (x ** 3 + a * x + systemUniqueInformation) % (2 ** 256)
+    key_int = int(math.sqrt( (x ** 3 + a * x + systemUniqueInformation) % (2 ** 256)))
     key_bytes = key_int.to_bytes(32, 'big')
 
     return key_bytes
@@ -209,7 +209,7 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
     key_gen_delay = key_gen_end_time - key_gen_start_time
     key_gen_delays.append((0, key_gen_delay))  # (chunk_index, delay)
     # print(f'aes key from system information during encryption: {aes_key} with size {len(aes_key)} ')
-    print(f'master aes key during encryption is {aes_key}')
+    print(f'size of master aes key during encryption is {len(aes_key)}')
     # Encrypt the AES key with RSA public key
     encrypted_aes_key = rsa_public_key.encrypt(
         aes_key,
@@ -219,6 +219,7 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
             label=None
         )
     )
+    print('size of encrypted aes key is',len(encrypted_aes_key))
     if SAVE_DYNAMIC_KEYS:
         keys_filename = os.path.join(output_dir, f"{video_name[:-4]}_All_Dynamic_Keys.txt")
         save_dynamic_keys(dynamic_keys, keys_filename)
@@ -231,7 +232,10 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
         iv = os.urandom(16)
         encryptor = Cipher(algorithms.AES(aes_key), modes.CFB(iv), backend=default_backend()).encryptor()
         encrypted_chunk = encryptor.update(chunk) + encryptor.finalize()
-        encrypted_chunks.append(iv + encrypted_chunk)
+        if idx==0:
+            encrypted_chunks.append(encrypted_aes_key+iv + encrypted_chunk)
+        else:
+            encrypted_chunks.append(iv + encrypted_chunk)
         # Encrypting each chunk with aes key
 
         # Generate the key for the next chunk using the current AES key
@@ -249,6 +253,7 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
         if SAVE_DYNAMIC_KEYS:
             keys_filename = os.path.join(output_dir, f"{video_name[:-4]}_All_Dynamic_Keys.txt")
             save_dynamic_keys(dynamic_keys, keys_filename)
+        print('idx value is ',idx)
     encryption_time = time.perf_counter() - start_time
     # Save encrypted AES key
     with open(os.path.join(output_dir, 'encrypted_key.bin'), 'wb') as file:
@@ -291,11 +296,14 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
     start_time = time.time()
     dynamic_keys = []
     encrypted_chunks = load_encrypted_chunks(output_dir, video_name)
-    print('decrypt 1 using systemUniqueInformation ', systemUniqueInformation)
 
-    with open(os.path.join(output_dir, 'encrypted_key.bin'), 'rb') as file:
-        encrypted_aes_key = file.read()
-    print('decrypt 2')
+    # Retrieve the encrypted AES key from the first chunk
+    first_chunk = encrypted_chunks[0]
+    encrypted_aes_key = first_chunk[:256]  # Assuming RSA key size is 2048 bits (256 bytes)
+    iv = first_chunk[256:272]  # Initialization vector (assuming 16 bytes for AES)
+    encrypted_chunk = first_chunk[272:]
+
+    # Decrypt the AES key using the RSA private key
     aes_key = rsa_private_key.decrypt(
         encrypted_aes_key,
         padding.OAEP(
@@ -304,13 +312,19 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
             label=None
         )
     )
-    print('decrypt 3 with aes key as ',aes_key)
-    print(f'master aes key while decrypting : {aes_key}')
-    dynamic_keys.append(aes_key)
-    decrypted_chunks = []
 
-    for idx, chunk in enumerate(encrypted_chunks):
-        iv = chunk[:16]
+    print(f'master aes key while decrypting: {aes_key}')
+    dynamic_keys.append(aes_key)
+
+    # Decrypt the first chunk
+    cipher = Cipher(algorithms.AES(aes_key), modes.CFB(iv), backend=default_backend())
+    decryptor = cipher.decryptor()
+    decrypted_chunk = decryptor.update(encrypted_chunk) + decryptor.finalize()
+    decrypted_chunks = [decrypted_chunk]
+
+    # Decrypt the remaining chunks
+    for idx, chunk in enumerate(encrypted_chunks[1:]):
+        iv = chunk[:16]  # Initialization vector
         encrypted_chunk = chunk[16:]
 
         cipher = Cipher(algorithms.AES(aes_key), modes.CFB(iv), backend=default_backend())
@@ -321,25 +335,27 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
         # Generate the key for the next chunk using the current AES key
         aes_key = generate_aes_key_with_ecc_equation(aes_key, systemUniqueInformation, first_chunk=False)
         dynamic_keys.append(aes_key)
-        print('decrypt 4')
-    print('decrypt 5')
+
     decryption_time = time.time() - start_time
     start_time = time.time()
+
     if SAVE_DYNAMIC_KEYS:
         keys_filename = os.path.join(output_path, f"{video_name[:-4]}_All_Dynamic_Keys.txt")
         save_dynamic_keys(dynamic_keys, keys_filename)
-    print('decrypt 6')
+
+    # Write the decrypted chunks to the output file
     with open(os.path.join(output_path, video_name), 'wb') as file:
         for chunk in decrypted_chunks:
             file.write(chunk)
+
     combine_time = time.time() - start_time
-    print('decrypt 7')
+
     # Update decryption and combining chunks times in metrics
     cur = mysql.connection.cursor()
     cur.execute("""
         UPDATE metrics
         SET decryption_time = %s, combine_time = %s
-        WHERE file_name = %s and video_id =%s
+        WHERE file_name = %s and video_id = %s
     """, (decryption_time, combine_time, video_name[:-4], video_id))
     mysql.connection.commit()
     cur.close()
