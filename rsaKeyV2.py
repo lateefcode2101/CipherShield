@@ -1,5 +1,4 @@
 import random
-
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -14,9 +13,6 @@ private_key_path = 'keys/privKey/private_key.pem'
 
 
 def generate_prime(bit_length):
-    """
-    Generate a prime number with the given bit length.
-    """
     while True:
         # Generate a random number of the specified bit length
         prime_candidate = random.getrandbits(bit_length)
@@ -67,24 +63,22 @@ def generate_keys(bit_length):
     global p, q
     print(AES.block_size)
     p = generate_prime(
-        bit_length//2)
+        bit_length // 2)
     # generate_prime(bit_length // 2)
     q = generate_prime(
-        bit_length//2)
+        bit_length // 2)
     # generate_prime(bit_length // 2)
-    print('P = ',p)
+    print('P = ', p)
     print('\nlen of p is ', p.bit_length())
-    print('\n q = ',q)
+    print('\n q = ', q)
     print('\nlen of q is ', q.bit_length())
 
     n = p * q
-    print('n = p * q = ',n)
+    print('n = p * q = ', n)
     phi = (p - 1) * (q - 1)
-    print('phi = (p - 1) * (q - 1) = ',phi)
+    print('phi = (p - 1) * (q - 1) = ', phi)
 
     e = 65537  # Chosen public exponent
-
-
 
     d = mod_inverse(e, phi)
     # Save the primes and RSA components to a file for reference
@@ -106,19 +100,17 @@ def rsa_components_to_pem(n, e, d):
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
 
-
     private_key = rsa.RSAPrivateNumbers(
         p=p, q=q, d=d, dmp1=dmp1, dmq1=dmq1, iqmp=iqmp, public_numbers=rsa.RSAPublicNumbers(e, n)
     ).private_key(default_backend())
 
     # Serialize private key to PEM format
     private_key_pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()  # No encryption for example
-        )
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()  # No encryption for example
+    )
     # print('private_key_pem is ',private_key_pem)
-
 
     # print('public key pem is ',public_key_pem)
 
@@ -150,6 +142,5 @@ with open(public_key_path, 'rb') as f:
 
 with open(private_key_path, 'rb') as f:
     private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
-
 
 print('Keys Generated successfully')

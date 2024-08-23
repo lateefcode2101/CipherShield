@@ -4,9 +4,9 @@ import math
 import os
 import time
 import hashlib
-from collections import Counter
-
 import bcrypt
+from flask import jsonify
+from collections import Counter
 from datetime import datetime
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
@@ -24,7 +24,7 @@ app.config['MYSQL_HOST'] = 'localhost'
 app.config['MYSQL_USER'] = 'root'
 app.config['MYSQL_PASSWORD'] = 'asdf'
 app.config['MYSQL_DB'] = 'cryptdb'
-app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024 * 10  # 1GB
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024 * 100  # 10GB
 app.config['SESSION_PERMANENT'] = True
 
 # app.permanent_session_lifetime = timedelta(minutes=5)  # Set timeout to 30 minutes
@@ -90,11 +90,11 @@ def divide_chunks(file_path, chunk_size=1024 * 1024):
         while chunk := file.read(chunk_size):
             # print("writing chunks")
             chunks.append(chunk)
-    chunk_time = time.time() - start_time
-    return chunks, chunk_time
+    chunking_time = time.time() - start_time
+    return chunks, chunking_time
 
 
-def save_encrypted_chunks(encrypted_chunks, output_dir, video_name, encryption_time):
+def save_encrypted_chunks(encrypted_chunks, output_dir, video_name, encryption_time, video_id):
     os.makedirs(output_dir, exist_ok=True)
     user = session['username']
     cur = mysql.connection.cursor()
@@ -103,9 +103,9 @@ def save_encrypted_chunks(encrypted_chunks, output_dir, video_name, encryption_t
     for _i_, chunk in enumerate(encrypted_chunks):
         entropy = calculate_entropy(chunk)
         cur.execute("""
-                        INSERT INTO chunk_metrics (video_name, chunk_index, chunk_size_mb, processing_time, entropy, user_id)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (video_name, _i_, len(chunk) / (1024 * 1024), encryption_time, entropy, user_id))
+                        INSERT INTO chunk_metrics (video_name, chunk_index, chunk_size_mb, processing_time, entropy, user_id,video_id)
+                        VALUES (%s, %s, %s, %s, %s, %s,%s)
+                    """, (video_name, _i_, len(chunk) / (1024 * 1024), encryption_time, entropy, user_id, video_id))
 
         with open(os.path.join(output_dir, f'{video_name}_encrypted_chunk_{_i_}.enc'), 'wb') as file:
             file.write(chunk)
@@ -131,10 +131,10 @@ def generate_aes_key_with_ecc_equation(vid_or_key, systemUniqueInformation, firs
 
     if first_chunk:
         a = int.from_bytes(vid_or_key.encode(), 'big')
-        # print('len of a of first chunk is', len(str(a)))
+        # print('len of 'a' for first chunk is', len(str(a)))
     else:
         a = int.from_bytes(vid_or_key, byteorder='big')
-        # print('len of a of other chunk is', len(str(a)))
+        # print('len of 'a' for other chunk is', len(str(a)))
 
     # Generate a deterministic x-coordinate using a hash function
     x_hash = hashlib.sha256(vid_or_key.encode() if first_chunk else vid_or_key).digest()
@@ -143,7 +143,7 @@ def generate_aes_key_with_ecc_equation(vid_or_key, systemUniqueInformation, firs
     # print('lenght of x integer is ', len(str(x)))
 
     # Compute Key a using the ECC equation
-    key_int = int(math.sqrt( (x ** 3 + a * x + systemUniqueInformation) % (2 ** 256)))
+    key_int = int(math.sqrt((x ** 3 + a * x + systemUniqueInformation) % (2 ** 256)))
     key_bytes = key_int.to_bytes(32, 'big')
 
     return key_bytes
@@ -190,8 +190,8 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
     chunk_delays = []
     key_gen_delays = []
 
-    # Get chunks and chunk_time
-    chunks, chunk_time = divide_chunks(file_path)
+    # Get chunks and chunking_time
+    chunks, chunking_time = divide_chunks(file_path)
 
     # print(f'hardware guid is {systemUniqueInformation}')
 
@@ -199,17 +199,18 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
     vid = base64.b64encode(chunks[0][:16]).decode()
     # print('vid with .decode', vid)
 
-    # print('vid without .decode', base64.b64encode(chunks[0][:16]))
-    # print(f'VID: {vid}')
-
     # Compute the key for the first chunk
     key_gen_start_time = time.perf_counter()
+
     aes_key = generate_aes_key_with_ecc_equation(vid, systemUniqueInformation, first_chunk=True)
+
     key_gen_end_time = time.perf_counter()
     key_gen_delay = key_gen_end_time - key_gen_start_time
-    key_gen_delays.append((0, key_gen_delay))  # (chunk_index, delay)
-    # print(f'aes key from system information during encryption: {aes_key} with size {len(aes_key)} ')
+    key_gen_delays.append((0, key_gen_delay))
+    dynamic_keys.append(aes_key)
+    print(f'aes key from system information during encryption: {aes_key} with size {len(aes_key)} ')
     print(f'size of master aes key during encryption is {len(aes_key)}')
+
     # Encrypt the AES key with RSA public key
     encrypted_aes_key = rsa_public_key.encrypt(
         aes_key,
@@ -219,67 +220,50 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
             label=None
         )
     )
-    print('size of encrypted aes key is',len(encrypted_aes_key))
+    print('size of encrypted aes key is', len(encrypted_aes_key))
     if SAVE_DYNAMIC_KEYS:
-        keys_filename = os.path.join(output_dir, f"{video_name[:-4]}_All_Dynamic_Keys.txt")
+        print('video name while saving dynamic keys is ',video_name)
+        keys_filename = os.path.join(output_dir, f"{video_name}_All_Dynamic_Keys.txt")
         save_dynamic_keys(dynamic_keys, keys_filename)
 
     # Encrypt chunks with AES key
     encrypted_chunks = []
     for idx, chunk in enumerate(chunks):
-        chunk_start_time = time.perf_counter()
-        previous_aes_key = aes_key
+        chunk_encryption_start_time = time.perf_counter()
+
         iv = os.urandom(16)
         encryptor = Cipher(algorithms.AES(aes_key), modes.CFB(iv), backend=default_backend()).encryptor()
         encrypted_chunk = encryptor.update(chunk) + encryptor.finalize()
-        if idx==0:
-            encrypted_chunks.append(encrypted_aes_key+iv + encrypted_chunk)
+        if idx == 0:
+            encrypted_chunks.append(encrypted_aes_key + iv + encrypted_chunk)
         else:
             encrypted_chunks.append(iv + encrypted_chunk)
         # Encrypting each chunk with aes key
 
         # Generate the key for the next chunk using the current AES key
         key_gen_start_time = time.perf_counter()
-        aes_key = generate_aes_key_with_ecc_equation(previous_aes_key, systemUniqueInformation, first_chunk=False)
+        aes_key = generate_aes_key_with_ecc_equation(aes_key, systemUniqueInformation, first_chunk=False)
         key_gen_end_time = time.perf_counter()
         key_gen_delay = key_gen_end_time - key_gen_start_time
         key_gen_delays.append((idx, key_gen_delay))  # (chunk_index, delay)
-        # print(f'aes key during encryption for chunk {idx} is {aes_key}')
+        # print(f' aes key during encryption for chunk {idx} is {aes_key} ')
         chunk_end_time = time.perf_counter()
-        chunk_delay = chunk_end_time - chunk_start_time
+        chunk_encryption_delay = chunk_end_time - chunk_encryption_start_time
 
-        chunk_delays.append(chunk_delay)
+        chunk_delays.append(chunk_encryption_delay)
         dynamic_keys.append(aes_key)
-        if SAVE_DYNAMIC_KEYS:
-            keys_filename = os.path.join(output_dir, f"{video_name[:-4]}_All_Dynamic_Keys.txt")
-            save_dynamic_keys(dynamic_keys, keys_filename)
-        print('idx value is ',idx)
+
+        print('idx value is ', idx)
     encryption_time = time.perf_counter() - start_time
+
+    if SAVE_DYNAMIC_KEYS:
+        keys_filename = os.path.join(output_dir, f"{video_name[:-4]}_All_Dynamic_Keys.txt")
+        save_dynamic_keys(dynamic_keys, keys_filename)
     # Save encrypted AES key
     with open(os.path.join(output_dir, 'encrypted_key.bin'), 'wb') as file:
         file.write(encrypted_aes_key)
 
-    # Save encrypted chunks
-    save_encrypted_chunks(encrypted_chunks, output_dir, video_name, encryption_time)
-
-    # Save chunk delays to the database
-    cur = mysql.connection.cursor()
-    cur.execute("SELECT user_id FROM Users WHERE username = %s", (session['username'],))
-    recipient_id=cur.fetchone()
-    for chunk_index, delay in key_gen_delays:
-        cur.execute("""
-                INSERT INTO key_gen_delays (video_name, chunk_index, delay, recipient_id)
-                VALUES (%s, %s, %s, %s)
-            """, (video_name, chunk_index, delay, recipient_id))
-    for idx, delay in enumerate(chunk_delays):
-        cur.execute("""
-                INSERT INTO chunk_delays (video_name, chunk_index, delay, recipient_id)
-                VALUES (%s, %s, %s, %s)
-            """, (video_name, idx, delay, recipient_id))
-    mysql.connection.commit()
-    cur.close()
-
-    return vid, file_size, chunk_time, encryption_time
+    return vid, file_size, chunking_time, encryption_time, key_gen_delays, chunk_delays, encrypted_chunks
 
 
 def calculate_entropy(data):
@@ -296,6 +280,7 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
     start_time = time.time()
     dynamic_keys = []
     encrypted_chunks = load_encrypted_chunks(output_dir, video_name)
+    total_chunks = len(encrypted_chunks)
 
     # Retrieve the encrypted AES key from the first chunk
     first_chunk = encrypted_chunks[0]
@@ -313,7 +298,7 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
         )
     )
 
-    print(f'master aes key while decrypting: {aes_key}')
+    print(f'master aes key after decryption: {aes_key}')
     dynamic_keys.append(aes_key)
 
     # Decrypt the first chunk
@@ -321,9 +306,12 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
     decryptor = cipher.decryptor()
     decrypted_chunk = decryptor.update(encrypted_chunk) + decryptor.finalize()
     decrypted_chunks = [decrypted_chunk]
+    aes_key = generate_aes_key_with_ecc_equation(aes_key, systemUniqueInformation, first_chunk=False)
+    dynamic_keys.append(aes_key)
 
     # Decrypt the remaining chunks
     for idx, chunk in enumerate(encrypted_chunks[1:]):
+        print('idx while decrypting is ',idx)
         iv = chunk[:16]  # Initialization vector
         encrypted_chunk = chunk[16:]
 
@@ -336,6 +324,10 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
         aes_key = generate_aes_key_with_ecc_equation(aes_key, systemUniqueInformation, first_chunk=False)
         dynamic_keys.append(aes_key)
 
+        # # Update progress
+        # progress = (idx + 2) / total_chunks * 100
+        # yield jsonify({'progress': progress})
+
     decryption_time = time.time() - start_time
     start_time = time.time()
 
@@ -347,6 +339,7 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
     with open(os.path.join(output_path, video_name), 'wb') as file:
         for chunk in decrypted_chunks:
             file.write(chunk)
+            print('combining chunks to decrypted file')
 
     combine_time = time.time() - start_time
 
@@ -359,7 +352,6 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
     """, (decryption_time, combine_time, video_name[:-4], video_id))
     mysql.connection.commit()
     cur.close()
-
 
 def save_dynamic_keys(keys, filename):
     with open(filename, 'w') as f:
@@ -463,9 +455,11 @@ def upload():
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir, exist_ok=True)
                 systemUniqueInformation = generate_system_specific_data(uuid_from_form)
-                vid, file_size, chunk_time, encryption_time = encrypt_video(file_path, public_key,
-                                                                            systemUniqueInformation,
-                                                                            encrypted_folder, video_name)
+                print('size of systemUniqueInformation ', len(str(systemUniqueInformation)))
+                vid, file_size, chunk_time, encryption_time, key_gen_delays, chunk_delays, encrypted_chunks = encrypt_video(
+                    file_path, public_key,
+                    systemUniqueInformation,
+                    encrypted_folder, video_name)
                 uploader_username = session['username']
                 cur.execute("SELECT user_id FROM Users WHERE username = %s", (uploader_username,))
                 uploader = cur.fetchone()
@@ -493,6 +487,21 @@ def upload():
                     video_id, file_size_mb, chunk_time, encryption_time, 0, 0,
                     video_name, recipient_id))  # Decryption time is initially 0
 
+                # Save chunk delays to the database
+                cur = mysql.connection.cursor()
+                cur.execute("SELECT user_id FROM Users WHERE username = %s", (session['username'],))
+                recipient_id = cur.fetchone()
+                for chunk_index, delay in key_gen_delays:
+                    cur.execute("""
+                                INSERT INTO key_gen_delays ( video_name, chunk_index, delay, recipient_id,video_id)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (video_name, chunk_index, delay, recipient_id, video_id))
+                for idx, delay in enumerate(chunk_delays):
+                    cur.execute("""
+                                INSERT INTO chunk_delays (video_id, video_name, chunk_index, delay, recipient_id)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (video_id, video_name, idx, delay, recipient_id))
+                save_encrypted_chunks(encrypted_chunks, output_dir, video_name, encryption_time, video_id)
                 mysql.connection.commit()
                 cur.close()
 
@@ -523,7 +532,7 @@ def watch(video_id):
         return redirect(url_for('index'))
 
     video_id, file_name, recipient_id, hardware_uuid = video
-    print('hardware uuid is ',hardware_uuid)
+    print('hardware uuid is ', hardware_uuid)
     cur = mysql.connection.cursor()
     cur.execute("SELECT username FROM Users WHERE user_id = %s", (recipient_id,))
     recipient = cur.fetchone()
@@ -547,17 +556,8 @@ def watch(video_id):
             while chunk := f.read(1024 * 1024):
                 yield chunk
 
-    # return render_template('view.html', video_id=video_id)
-
     return Response(generate(), content_type='video/mp4')
-@app.route('/stream/<video_id>')
-def stream_video(video_id):
-    decrypted_file = f'decrypted_videos/{video_id}.mp4'  # Path to the decrypted video file
-    def generate():
-        with open(decrypted_file, 'rb') as f:
-            while chunk := f.read(1024 * 1024):  # Read in 1 MB chunks
-                yield chunk
-    return Response(generate(), mimetype='video/mp4')
+
 
 import matplotlib
 
@@ -599,6 +599,7 @@ def metrics():
     decryption_times = [row[3] for row in rows]
     combine_times = [row[4] for row in rows]
     file_names = [row[5] for row in rows]
+    # video_id = [row[6] for row in rows]
 
     # Determine x-axis scale
     max_file_size = max(file_sizes)
@@ -655,20 +656,20 @@ def metrics():
     for file_name in file_names:
         cur = mysql.connection.cursor()
         cur.execute("SELECT user_id FROM Users WHERE username = %s", (session['username'],))
-        user_id=cur.fetchone()
+        user_id = cur.fetchone()
         cur.execute("""
                 SELECT chunk_index, delay
                 FROM chunk_delays
-                WHERE video_name = %s and recipient_id=%s
+                WHERE video_name = %s and recipient_id=%s 
                 ORDER BY chunk_index ASC
-            """, (file_name,user_id))
+            """, (file_name, user_id))
         chunk_delays = cur.fetchall()
         cur.close()
 
         if len(chunk_delays) > 500:
             chunk_indices = [cd[0] for cd in chunk_delays]
             delays = [cd[1] for cd in chunk_delays]
-            print('chunk delays are ',len(chunk_delays))
+            print('chunk delays are ', len(chunk_delays))
 
             plt.subplot(4, 2, 5)
             plt.plot(chunk_indices, delays, '-')
@@ -688,7 +689,7 @@ def metrics():
                 FROM key_gen_delays
                 WHERE video_name = %s  and recipient_id=%s
                 ORDER BY chunk_index ASC
-        """, (file_name,user_id))
+        """, (file_name, user_id))
         key_gen_delays = cur.fetchall()
         cur.close()
 
@@ -761,7 +762,8 @@ def metrics():
 
     # **New Plot 2: Chunking Efficiency (File Size / Chunking Time)**
     chunking_efficiency = [file_sizes[i] / chunk_times[i] for i in range(len(file_sizes))]
-    print('file sizes are ',file_sizes,'chunk times are ',chunk_times, '\n and chunking efficince is ',chunking_efficiency)
+    print('file sizes are ', file_sizes, 'chunk times are ', chunk_times, '\n and chunking efficince is ',
+          chunking_efficiency)
 
     plt.subplot(4, 2, 8)
     plt.plot(file_sizes, chunking_efficiency, 'o-')

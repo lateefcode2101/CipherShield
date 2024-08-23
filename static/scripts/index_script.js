@@ -1,3 +1,10 @@
+const eventSource = new EventSource('/decrypt/{{ video_id }}');
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  const progress = data.progress;
+  document.querySelector('.progress-bar').style.width = `${progress}%`;
+};
 //// Placeholder for any interactive functionality needed on the home page
 //// Example: Handling menu interactions or dynamic content loading
 //

@@ -29,8 +29,12 @@
                 <ul>
                     {% for video in videos %}
                         <li class="video-item" data-video-url="{{ url_for('watch', video_id=video[0]) }}">
-                            <a href="{{ url_for('watch', video_id=video[0]) }}" class="video-link">{{ loop.index }}. Video Title: "{{ video[1] }}"</a>
+                            <span class="video-title">{{ loop.index }}. Video Title: "{{ video[1] }}" </span>
                             <p>Description: {{ video[2] }}</p>
+                            <p>Uploaded File: {{ video[3] }}</p>
+                            <button class="decrypt-play-btn" onclick="location.href='{{ url_for('watch', video_id=video[0]) }}'">
+                        Decrypt and Play
+                    </button>
                         </li>
                     {% endfor %}
                 </ul>
@@ -38,7 +42,9 @@
                 <p>No videos found</p>
             {% endif %}
         </div>
-
+<div class="progress">
+  <div class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+</div>
         <!-- Mini Video Player -->
       <!-- Updated with streaming URL -->
 <div id="mini-player" class="mini-player hidden">
