@@ -123,26 +123,36 @@ def load_encrypted_chunks(output_dir, video_name):
     return encrypted_chunks
 
 
-def generate_aes_key_with_ecc_equation(vid_or_key, systemUniqueInformation, first_chunk=True):
-    # print('systemUniqueInformation= ', systemUniqueInformation)
+import os
 
-    # Convert systemUniqueInformation to integer
+
+def generate_aes_key_with_ecc_equation(vid_or_key, systemUniqueInformation, previous_aes_key=None, first_chunk=True):
     systemUniqueInformation = int.from_bytes(str(systemUniqueInformation).encode(), 'big')
 
     if first_chunk:
         a = int.from_bytes(vid_or_key.encode(), 'big')
-        # print('len of 'a' for first chunk is', len(str(a)))
+        vid_or_key_bytes = vid_or_key.encode()  # Convert to bytes
     else:
         a = int.from_bytes(vid_or_key, byteorder='big')
-        # print('len of 'a' for other chunk is', len(str(a)))
+        vid_or_key_bytes = vid_or_key  # Already in bytes
 
     # Generate a deterministic x-coordinate using a hash function
-    x_hash = hashlib.sha256(vid_or_key.encode() if first_chunk else vid_or_key).digest()
-    # print('lenght of x hash is ', len(x_hash))
+    x_hash = hashlib.sha256(vid_or_key_bytes).digest()
     x = int.from_bytes(x_hash, byteorder='big')
-    # print('lenght of x integer is ', len(str(x)))
 
-    # Compute Key a using the ECC equation
+    # Include previous AES key in the hash to ensure the new key is dependent on it
+    if previous_aes_key:
+        combined_input = vid_or_key_bytes + previous_aes_key
+    else:
+        combined_input = vid_or_key_bytes
+
+    # Generate another hash including the previous AES key (if available)
+    additional_entropy = hashlib.sha256(combined_input).digest()
+
+    # Combine the additional entropy into the systemUniqueInformation
+    systemUniqueInformation = systemUniqueInformation ^ int.from_bytes(additional_entropy[:16], byteorder='big')
+
+    # Compute Key using the ECC equation
     key_int = int(math.sqrt((x ** 3 + a * x + systemUniqueInformation) % (2 ** 256)))
     key_bytes = key_int.to_bytes(32, 'big')
 
@@ -222,7 +232,7 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
     )
     print('size of encrypted aes key is', len(encrypted_aes_key))
     if SAVE_DYNAMIC_KEYS:
-        print('video name while saving dynamic keys is ',video_name)
+        print('video name while saving dynamic keys is ', video_name)
         keys_filename = os.path.join(output_dir, f"{video_name}_All_Dynamic_Keys.txt")
         save_dynamic_keys(dynamic_keys, keys_filename)
 
@@ -238,22 +248,22 @@ def encrypt_video(file_path, rsa_public_key, systemUniqueInformation, output_dir
             encrypted_chunks.append(encrypted_aes_key + iv + encrypted_chunk)
         else:
             encrypted_chunks.append(iv + encrypted_chunk)
-        # Encrypting each chunk with aes key
 
         # Generate the key for the next chunk using the current AES key
         key_gen_start_time = time.perf_counter()
-        aes_key = generate_aes_key_with_ecc_equation(aes_key, systemUniqueInformation, first_chunk=False)
+        previous_aes_key = aes_key  # Store current key before generating the next one
+        aes_key = generate_aes_key_with_ecc_equation(aes_key, systemUniqueInformation, previous_aes_key,
+                                                     first_chunk=False)
         key_gen_end_time = time.perf_counter()
         key_gen_delay = key_gen_end_time - key_gen_start_time
         key_gen_delays.append((idx, key_gen_delay))  # (chunk_index, delay)
-        # print(f' aes key during encryption for chunk {idx} is {aes_key} ')
+
         chunk_end_time = time.perf_counter()
         chunk_encryption_delay = chunk_end_time - chunk_encryption_start_time
 
         chunk_delays.append(chunk_encryption_delay)
         dynamic_keys.append(aes_key)
 
-        print('idx value is ', idx)
     encryption_time = time.perf_counter() - start_time
 
     if SAVE_DYNAMIC_KEYS:
@@ -311,7 +321,7 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
 
     # Decrypt the remaining chunks
     for idx, chunk in enumerate(encrypted_chunks[1:]):
-        print('idx while decrypting is ',idx)
+        print('idx while decrypting is ', idx)
         iv = chunk[:16]  # Initialization vector
         encrypted_chunk = chunk[16:]
 
@@ -352,6 +362,7 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
     """, (decryption_time, combine_time, video_name[:-4], video_id))
     mysql.connection.commit()
     cur.close()
+
 
 def save_dynamic_keys(keys, filename):
     with open(filename, 'w') as f:
