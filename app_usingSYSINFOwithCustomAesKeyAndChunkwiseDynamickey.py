@@ -321,7 +321,7 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
 
     # Decrypt the remaining chunks
     for idx, chunk in enumerate(encrypted_chunks[1:]):
-        print('idx while decrypting is ', idx)
+        # print('idx while decrypting is ', idx)
         iv = chunk[:16]  # Initialization vector
         encrypted_chunk = chunk[16:]
 
@@ -349,7 +349,7 @@ def decrypt_video(output_dir, rsa_private_key, systemUniqueInformation, video_na
     with open(os.path.join(output_path, video_name), 'wb') as file:
         for chunk in decrypted_chunks:
             file.write(chunk)
-            print('combining chunks to decrypted file')
+            # print('combining chunks to decrypted file')
 
     combine_time = time.time() - start_time
 
